@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Myra - Smart AI</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        /* --- DESIGN --- */
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            background: url('bg.webp') no-repeat center center fixed; 
+            background-size: cover;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Segoe UI', sans-serif;
+            overflow: hidden;
+            position: relative;
+        }
+
+        body::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 0;
+        }
+
+        /* --- ORB ANIMATION --- */
+        .orb-container {
+            position: relative;
+            width: 250px;
+            height: 250px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            z-index: 2;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .orb {
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            position: relative;
+            z-index: 2;
+            transition: all 0.5s ease;
+            box-shadow: 0 0 60px rgba(255, 255, 255, 0.5);
+            background: linear-gradient(135deg, #ff9a9e, #fecfef); /* Default Pink */
+        }
+
+        /* STATES */
+        .orb.idle { animation: breathe 4s infinite ease-in-out; }
+        .orb.listening { 
+            transform: scale(1.15); 
+            background: linear-gradient(135deg, #ffffff, #fffacd);
+            box-shadow: 0 0 90px rgba(255, 255, 255, 0.9);
+        }
+        .orb.speaking { animation: talkPulse 0.3s infinite alternate; }
+        
+        /* MOODS */
+        .orb.happy { background: linear-gradient(135deg, #ffd700, #ff69b4); animation: bounce 0.8s infinite; }
+        .orb.sad { background: linear-gradient(135deg, #4facfe, #00f2fe); animation: breathe 6s infinite; }
+        .orb.angry { background: linear-gradient(135deg, #ff0844, #ffb199); animation: shake 0.4s infinite; }
+
+        .wave {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            opacity: 0;
+            z-index: 1;
+        }
+        .listening-wave { animation: ripple 1.5s infinite; }
+
+        .status-text {
+            margin-top: 60px;
+            color: white;
+            font-size: 1.3rem;
+            letter-spacing: 2px;
+            font-weight: bold;
+            text-transform: uppercase;
+            z-index: 2;
+            text-shadow: 0 2px 10px rgba(0,0,0,0.8);
+        }
+
+        @keyframes breathe { 0% { transform: scale(0.95); } 50% { transform: scale(1.05); } 100% { transform: scale(0.95); } }
+        @keyframes talkPulse { 0% { transform: scale(1); } 100% { transform: scale(1.12); } }
+        @keyframes ripple { 0% { transform: scale(1); opacity: 0.8; } 100% { transform: scale(2.3); opacity: 0; } }
+        @keyframes bounce { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-12px); } }
+        @keyframes shake { 0% { transform: translate(1px, 1px); } 25% { transform: translate(-1px, -2px); } 50% { transform: translate(-3px, 0px); } 75% { transform: translate(3px, 2px); } 100% { transform: translate(1px, -1px); } }
+    </style>
+</head>
+<body>
+
+    <audio id="bg-music" loop>
+        <source src="music.mp3" type="audio/mpeg">
+    </audio>
+
+    <div class="orb-container" id="activation-btn">
+        <div class="wave" id="wave1"></div>
+        <div class="wave" id="wave2"></div>
+        <div class="orb idle" id="orb"></div>
+    </div>
+
+    <div class="status-text" id="status">Tap to Talk</div>
+
+    <script>
+        // --- SETUP ---
+        const orb = document.getElementById('orb');
+        const wave1 = document.getElementById('wave1');
+        const wave2 = document.getElementById('wave2');
+        const statusText = document.getElementById('status');
+        const bgMusic = document.getElementById('bg-music');
+        
+        // Music Logic
+        let musicStarted = false;
+        function startMusic() {
+            if (!musicStarted) {
+                bgMusic.volume = 0.3;
+                bgMusic.play().then(() => musicStarted = true).catch(e => console.log("Click needed"));
+            }
+        }
+
+        // Voice Recognition
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        const recognition = new SpeechRecognition();
+        recognition.lang = 'en-IN'; // Works well for Hinglish
+        recognition.interimResults = false;
+
+        // Voice Synthesis
+        let myraVoice = null;
+        function loadVoices() {
+            const voices = window.speechSynthesis.getVoices();
+            myraVoice = voices.find(v => v.name.includes('Google UK English Female')) || 
+                        voices.find(v => v.name.includes('Female')) || voices[0];
+        }
+        window.speechSynthesis.onvoiceschanged = loadVoices;
+
+        function speak(text, mood = 'neutral') {
+            window.speechSynthesis.cancel();
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.voice = myraVoice;
+            utterance.pitch = 1.2;
+            utterance.rate = 1;
+
+            utterance.onstart = () => {
+                setMood(mood);
+                if(mood === 'neutral') orb.classList.add('speaking');
+                statusText.innerText = "Myra is speaking...";
+            };
+            utterance.onend = () => {
+                resetMood();
+            };
+            window.speechSynthesis.speak(utterance);
+        }
+
+        // --- MOOD UI ---
+        function setMood(mood) {
+            orb.className = 'orb';
+            if (mood === 'happy') orb.classList.add('happy');
+            else if (mood === 'sad') orb.classList.add('sad');
+            else if (mood === 'angry') orb.classList.add('angry');
+            else orb.classList.add('speaking');
+        }
+        function resetMood() {
+            orb.className = 'orb idle';
+            statusText.innerText = "Tap to Talk";
+        }
+
+        // --- MAIN INTELLIGENCE (MERGED LOGIC) ---
+        function processCommand(cmd) {
+            const lowerCmd = cmd.toLowerCase();
+            let reply = "";
+            let currentMood = "neutral";
+
+            // 1. OPEN APPS & UTILITIES
+            if (lowerCmd.includes("open youtube")) {
+                reply = "Opening YouTube...";
+                speak(reply);
+                window.open("https://youtube.com/", "_blank");
+                return;
+            }
+            else if (lowerCmd.includes("open google")) {
+                reply = "Opening Google...";
+                speak(reply);
+                window.open("https://google.com/", "_blank");
+                return;
+            }
+            else if (lowerCmd.includes("open facebook")) {
+                reply = "Opening Facebook...";
+                speak(reply);
+                window.open("https://facebook.com/", "_blank");
+                return;
+            }
+            else if (lowerCmd.includes("open instagram")) {
+                reply = "Opening Instagram...";
+                speak(reply);
+                window.open("https://instagram.com/", "_blank");
+                return;
+            }
+            else if (lowerCmd.includes("open whatsapp")) {
+                reply = "Opening WhatsApp...";
+                speak(reply);
+                window.open("whatsapp://");
+                return;
+            }
+            else if (lowerCmd.includes("open calculator")) {
+                reply = "Opening Calculator...";
+                speak(reply);
+                window.open("calculator://");
+                return;
+            }
+            else if (lowerCmd.includes("time")) {
+                let time = new Date().toLocaleString(undefined, {hour: "numeric", minute: "numeric"});
+                reply = "Abhi time ho raha hai " + time;
+                speak(reply);
+                return;
+            }
+            else if (lowerCmd.includes("date")) {
+                let date = new Date().toLocaleString(undefined, {day: "numeric", month: "long"});
+                reply = "Aaj ki date hai " + date;
+                speak(reply);
+                return;
+            }
+
+            // 2. MOOD DETECTION
+            if (lowerCmd.includes('sad') || lowerCmd.includes('mood off')) {
+                currentMood = "sad";
+                reply = "Udaas mat ho babu, main hoon na. Kuch acha sochein?";
+            }
+            else if (lowerCmd.includes('happy') || lowerCmd.includes('khush')) {
+                currentMood = "happy";
+                reply = "Wow! Aap khush toh main bhi khush!";
+            }
+            else if (lowerCmd.includes('angry') || lowerCmd.includes('gussa')) {
+                currentMood = "angry";
+                reply = "Shant ho jao. Gussa health ke liye kharab hai.";
+                bgMusic.volume = 0.5; // Relax music volume up
+            }
+
+            // 3. CONVERSATION
+            else if (lowerCmd.includes("hello") || lowerCmd.includes("hey")) {
+                currentMood = "happy";
+                reply = "Hello ji! Main Myra hoon. Bataiye kya madad karun?";
+            }
+            else if (lowerCmd.includes("who are you") || lowerCmd.includes("hu r u")) {
+                reply = "Main Myra hoon, aapki Virtual Assistant aur dost.";
+            }
+            else if (lowerCmd.includes("love you")) {
+                currentMood = "happy";
+                reply = "Love you too! Aap bahut sweet ho.";
+            }
+            
+            // 4. FALLBACK (GOOGLE SEARCH)
+            else {
+                reply = "Mujhe internet par ye mila...";
+                speak(reply);
+                // Remove 'myra' from search query for better results
+                let query = lowerCmd.replace("myra", "").replace("shipra", "");
+                window.open(`https://www.google.com/search?q=${query}`, "_blank");
+                return;
+            }
+
+            speak(reply, currentMood);
+        }
+
+        // --- TRIGGERS ---
+        const triggerArea = document.getElementById('activation-btn');
+        triggerArea.addEventListener('click', () => {
+            startMusic();
+            if (orb.classList.contains('idle')) {
+                try { recognition.start(); } catch(e) {}
+            }
+        });
+
+        recognition.onstart = () => {
+            orb.className = 'orb listening';
+            wave1.classList.add('listening-wave');
+            wave2.classList.add('listening-wave');
+            statusText.innerText = "Listening...";
+            bgMusic.volume = 0.1;
+        };
+
+        recognition.onend = () => {
+            wave1.classList.remove('listening-wave');
+            wave2.classList.remove('listening-wave');
+            bgMusic.volume = 0.3;
+        };
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            processCommand(transcript);
+        };
+
+        loadVoices();
+    </script>
+</body>
+</html>
